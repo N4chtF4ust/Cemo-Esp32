@@ -24,7 +24,7 @@ void CommandHandler::begin() {
 void CommandHandler::printHelp() {
   Serial.println("=== AVAILABLE COMMANDS ===");
   Serial.println("TARE      - Re-calibrate empty baseline (NO weight on scale)");
-  Serial.println("CALIBRATE - Auto-calibrate with 1kg weight");
+  Serial.println("CALIBRATE [g] - Auto-calibrate with known weight in grams (default: 1000)");
   Serial.println("RESETCAL  - Reset calibration (restart required)");
   Serial.println("START     - Start continuous printing");
   Serial.println("STOP      - Stop continuous printing");
@@ -97,10 +97,27 @@ void CommandHandler::processCommand(String cmd) {
     hx711_tare();
     Serial.println("==================================\n");
   }
-  else if (cmd == "CALIBRATE") {
+  else if (cmd == "CALIBRATE" || cmd.startsWith("CALIBRATE ")) {
+    float knownWeightG = 1000.0f;
+    if (cmd.length() > 9) {
+      String arg = cmd.substring(9);
+      arg.trim();
+      if (arg.length() == 0) {
+        Serial.println("Usage: CALIBRATE <known_weight_in_grams>");
+        return;
+      }
+      knownWeightG = arg.toFloat();
+      if (knownWeightG <= 0.0f) {
+        Serial.println("Invalid weight. Example: CALIBRATE 500");
+        return;
+      }
+    }
+
     Serial.println("\n=== CALIBRATE SCALE ===");
-    Serial.println("Make sure you have exactly 1kg ready!");
-    hx711_calibrate(1000.0f);
+    Serial.print("Make sure you have exactly ");
+    Serial.print(knownWeightG, 0);
+    Serial.println("g ready!");
+    hx711_calibrate(knownWeightG);
     Serial.println("=======================\n");
   }
   else if (cmd == "RESETCAL") {
