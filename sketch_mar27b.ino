@@ -3,12 +3,14 @@
 
 #include "hx711_sensor.h"
 #include "dht_sensor.h"
-#include "ina226_sensor.h"
-#include "max17043_sensor.h"
 #include "oled_display.h"
 #include "command_handler.h"
 #include "ble_sensor.h"       // ← NEW
 #include "sleep_manager.h"    // ← NEW
+
+// ===== I2C PINS =====
+#define I2C_SDA 8
+#define I2C_SCL 9
 
 // ===== I2C SCAN =====
 void i2c_scan() {
@@ -30,9 +32,6 @@ void setup() {
   Wire.begin(I2C_SDA, I2C_SCL);
   i2c_scan();
 
-  ina226_init();
-  delay(500);     // Give INA226 time for its first conversion (64x averaging)
-  max17043_init();
   hx711_init();   // Loads saved empty baseline
   dht_init();
   oled_init();    // Must come after Wire.begin()

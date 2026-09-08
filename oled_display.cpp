@@ -6,8 +6,6 @@
 
 #include "hx711_sensor.h"
 #include "dht_sensor.h"
-#include "ina226_sensor.h"
-#include "max17043_sensor.h"
 #include "ble_sensor.h"   // ✅ ADD THIS
 
 // ===== INTERNAL STATE =====
@@ -120,29 +118,6 @@ static void draw_dashboard() {
     display.print("N/A");
   } else {
     display.print(sensorData.humidity, 1);
-    display.print("%");
-  }
-
-  // Divider
-  display.drawFastHLine(0, 51, OLED_WIDTH, SH110X_WHITE);
-
-  // --- Voltage + Current ---
-  display.setCursor(0, 54);
-  if (!inaConnected) {
-    display.print("INA226: N/A");
-  } else {
-    display.print(loadVoltage_V, 3);
-    display.print("V ");
-    display.print(ina226_getDisplayCurrent(), 0);
-    display.print("mA ");
-    display.print(power_mW, 0);
-    display.print("mW");
-  }
-
-  if (max17043Connected) {
-    max17043_read();
-    display.print(" S:");
-    display.print(max17043_getSoc(), 0);
     display.print("%");
   }
 

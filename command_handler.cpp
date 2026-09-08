@@ -2,8 +2,6 @@
 #include "command_handler.h"
 #include "hx711_sensor.h"
 #include "dht_sensor.h"
-#include "ina226_sensor.h"
-#include "max17043_sensor.h"
 
 CommandHandler cmdHandler;
 
@@ -39,12 +37,13 @@ void CommandHandler::printStatus() {
   Serial.print("Printing: "); Serial.println(printEnabled ? "ENABLED" : "DISABLED");
   Serial.print("Scale Connected: "); Serial.println(scaleConnected ? "YES" : "NO");
   if (scaleConnected) {
+    // Unfiltered and signed — a negative here is why the reported weight is 0.
     Serial.print("Current Weight: "); Serial.print(scale.get_units(5), 1); Serial.println(" g");
     Serial.print("Raw Reading: "); Serial.println(scale.read_average(5));
+    Serial.print("Tare Offset: "); Serial.println(scale.get_offset());
+    Serial.print("Cal Factor: "); Serial.println(scale.get_scale(), 4);
   }
   Serial.print("DHT11: "); Serial.println(dhtOK ? "OK" : "FAIL");
-  Serial.print("INA226: "); Serial.println(inaConnected ? "OK" : "FAIL");
-  Serial.print("MAX17043: "); Serial.println(max17043Connected ? "OK" : "FAIL");
   Serial.println("====================\n");
 }
 
@@ -52,9 +51,7 @@ void CommandHandler::printSensorDataOnce() {
   Serial.println("\n=== SINGLE READING ===");
   dht_update();
   float waste = readWeightSafe();
-  ina226_read();
-  max17043_read();
-  
+
   Serial.println("===== SENSOR DATA =====");
   if (scaleConnected) {
     Serial.print("Waste    : "); Serial.print(waste, 2); Serial.println(" g");
@@ -67,21 +64,6 @@ void CommandHandler::printSensorDataOnce() {
   } else {
     Serial.println("Temp     : DHT11 no reading");
     Serial.println("Humidity : DHT11 no reading");
-  }
-  if (inaConnected) {
-    float displayCurrent = ina226_getDisplayCurrent();
-    String sign = (displayCurrent > 0) ? "+" : (displayCurrent < 0) ? "-" : "";
-    Serial.print("Voltage  : "); Serial.print(loadVoltage_V, 3); Serial.println(" V");
-    Serial.print("Current  : "); Serial.print(sign); Serial.print(abs(displayCurrent), 2); Serial.println(" mA");
-    Serial.print("Status   : "); Serial.println(ina226_getStatus());
-  } else {
-    Serial.println("INA226   : not connected");
-  }
-  if (max17043Connected) {
-    Serial.print("Batt SOC : "); Serial.print(max17043_getSoc(), 1); Serial.println(" %");
-    Serial.print("Batt V   : "); Serial.print(batteryVoltage_V, 3); Serial.println(" V");
-  } else {
-    Serial.println("MAX17043 : not connected");
   }
   Serial.println("----------------------------");
   Serial.println("=====================\n");
@@ -173,9 +155,7 @@ void CommandHandler::update() {
     if (now - lastPrintTime >= PRINT_INTERVAL) {
       dht_update();
       float waste = readWeightSafe();
-      ina226_read();
-      max17043_read();
-      
+
       Serial.println("===== SENSOR DATA =====");
       if (scaleConnected) {
         Serial.print("Waste    : "); Serial.print(waste, 2); Serial.println(" g");
@@ -189,23 +169,8 @@ void CommandHandler::update() {
         Serial.println("Temp     : DHT11 no reading");
         Serial.println("Humidity : DHT11 no reading");
       }
-      if (inaConnected) {
-        float displayCurrent = ina226_getDisplayCurrent();
-        String sign = (displayCurrent > 0) ? "+" : (displayCurrent < 0) ? "-" : "";
-        Serial.print("Voltage  : "); Serial.print(loadVoltage_V, 3); Serial.println(" V");
-        Serial.print("Current  : "); Serial.print(sign); Serial.print(abs(displayCurrent), 2); Serial.println(" mA");
-        Serial.print("Status   : "); Serial.println(ina226_getStatus());
-      } else {
-        Serial.println("INA226   : not connected");
-      }
-      if (max17043Connected) {
-        Serial.print("Batt SOC : "); Serial.print(max17043_getSoc(), 1); Serial.println(" %");
-        Serial.print("Batt V   : "); Serial.print(batteryVoltage_V, 3); Serial.println(" V");
-      } else {
-        Serial.println("MAX17043 : not connected");
-      }
       Serial.println("----------------------------");
-      
+
       lastPrintTime = now;
     }
   }

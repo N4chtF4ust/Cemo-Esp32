@@ -9,19 +9,21 @@
 
 #include "hx711_sensor.h"
 #include "dht_sensor.h"
-#include "ina226_sensor.h"
-#include "max17043_sensor.h"
 
 #define SERVICE_UUID        "12345678-1234-1234-1234-123456789012"
 #define CHARACTERISTIC_UUID "abcd1234-ab12-ab12-ab12-abcdef123456"
+#define CMD_CHAR_UUID       "abcd1234-ab12-ab12-ab12-abcdef123457"
 #define DEVICE_NAME         "CEMO-IOT"
 #define CLIENT_TIMEOUT_MS   120000  // allow long sensor read jitter before any forced recovery
 #define BLE_NOTIFY_INTERVAL_MS 1000
 
 static BLECharacteristic* pSensorChar     = nullptr;
+static BLECharacteristic* pCommandChar    = nullptr;
 static bool               deviceConnected = false;
 static unsigned long      lastNotifyMs    = 0;
 static unsigned long      lastActivityMs  = 0;
+static String             pendingCommand  = "";
+static String             pendingEvent    = "";
 
 // ───────────────────────── SECURITY ─────────────────────────
 
@@ -56,6 +58,21 @@ class CemoServerCallbacks : public BLEServerCallbacks {
         lastActivityMs  = 0;         // clear watchdog on disconnect
         Serial.println("[BLE] Disconnected → restarting advertising");
         BLEDevice::startAdvertising();
+    }
+};
+
+// ───────────────────────── COMMAND CALLBACKS ─────────────────────────
+
+class CemoCommandCallbacks : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic* characteristic) override {
+        String cmd = characteristic->getValue();
+        cmd.trim();
+        if (cmd.length() == 0) return;
+
+        pendingCommand = cmd;
+        lastActivityMs = millis();
+        Serial.print("[BLE] Command received: ");
+        Serial.println(cmd);
     }
 };
 
@@ -95,6 +112,12 @@ void ble_init() {
         BLECharacteristic::PROPERTY_NOTIFY
     );
 
+    pCommandChar = service->createCharacteristic(
+        CMD_CHAR_UUID,
+        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
+    );
+    pCommandChar->setCallbacks(new CemoCommandCallbacks());
+
     pSensorChar->addDescriptor(new BLE2902());
 
     service->start();
@@ -125,27 +148,49 @@ void ble_update() {
 
     if (!deviceConnected) return;
 
-    if (millis() - lastNotifyMs < BLE_NOTIFY_INTERVAL_MS) return;
+    if (pendingCommand.length() > 0) {
+        String cmd = pendingCommand;
+        pendingCommand = "";
+        cmd.trim();
+        cmd.toUpperCase();
+
+        if (cmd == "TARE") {
+            // Only fails if the HX711 is missing entirely.
+            pendingEvent = hx711_tare() ? "TARE_DONE" : "TARE_FAILED";
+        } else if (cmd == "RESETCAL") {
+            hx711_resetToDefault();
+            pendingEvent = "RESETCAL_DONE";
+        } else {
+            Serial.print("[BLE] Unknown command: ");
+            Serial.println(cmd);
+        }
+    }
+
+    // Push pending events (e.g. TARE_DONE) immediately so the app's loading
+    // state clears the moment the tare finishes; otherwise throttle notifies.
+    if (pendingEvent.length() == 0 && (millis() - lastNotifyMs < BLE_NOTIFY_INTERVAL_MS)) return;
     lastNotifyMs = millis();
 
     // Refresh sensors on the BLE path so payloads are independent from serial print mode.
     dht_update();
-    ina226_read();
 
     float weight = scaleConnected ? (readWeightSafe(READINGS_AVERAGE_FAST) / 1000.0f) : 0.0f;
     float temp   = dhtOK ? sensorData.temperature : 0.0f;
     float hum    = dhtOK ? sensorData.humidity : 0.0f;
-    float volt   = inaConnected ? loadVoltage_V : 0.0f;
-    float curr   = inaConnected ? ina226_getDisplayCurrent() : 0.0f;
-    max17043_read();
-    float soc        = max17043Connected ? max17043_getSoc() : 0.0f;
-    String bStatus   = inaConnected ? ina226_getStatus() : "OFFLINE";
 
-    char payload[150];
-    snprintf(payload, sizeof(payload),
-        "WEIGHT:%.2f,TEMP:%.1f,HUM:%.1f,VOLT:%.2f,CURR:%.3f,SOC:%.1f,STATUS:%s",
-        weight, temp, hum, volt, curr, soc, bStatus.c_str()
-    );
+    char payload[170];
+    if (pendingEvent.length() > 0) {
+        snprintf(payload, sizeof(payload),
+            "WEIGHT:%.2f,TEMP:%.1f,HUM:%.1f,EVENT:%s",
+            weight, temp, hum, pendingEvent.c_str()
+        );
+        pendingEvent = "";
+    } else {
+        snprintf(payload, sizeof(payload),
+            "WEIGHT:%.2f,TEMP:%.1f,HUM:%.1f",
+            weight, temp, hum
+        );
+    }
 
     pSensorChar->setValue((uint8_t*)payload, strlen(payload));
     pSensorChar->notify();
